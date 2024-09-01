@@ -36,7 +36,6 @@ var blend_pipeline : RID
 # The output layer doesn't support copy operations, so we have to manually copy with a shader
 var blit_shader : RID
 var blit_pipeline : RID
-var blit_gamma_pipeline : RID
 
 var edges_tex : RID
 var blend_tex : RID
@@ -157,9 +156,6 @@ func _create_pipelines() -> void:
 	corner_rounding_constant.constant_id = 4
 	corner_rounding_constant.value = smaa_corner_rounding
 
-	var gamma_correction : RDPipelineSpecializationConstant = RDPipelineSpecializationConstant.new()
-	gamma_correction.constant_id = 0
-
 	if edge_shader.is_valid():
 		edge_pipeline = rd.render_pipeline_create(edge_shader, rg_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
@@ -179,17 +175,10 @@ func _create_pipelines() -> void:
 			color_blend
 		)
 	if blit_shader.is_valid():
-		gamma_correction.value = false
 		blit_pipeline = rd.render_pipeline_create(blit_shader, framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
 			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
-			color_blend, 0, 0, [gamma_correction]
-		)
-		gamma_correction.value = true
-		blit_gamma_pipeline = rd.render_pipeline_create(blit_shader, framebuffer_format,
-			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
-			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
-			color_blend, 0, 0, [gamma_correction]
+			color_blend
 		)
 
 func _clean_pipelines() -> void:
@@ -201,8 +190,6 @@ func _clean_pipelines() -> void:
 		RenderingServer.free_rid(blend_pipeline)
 	if blit_pipeline.is_valid():
 		RenderingServer.free_rid(blit_pipeline)
-	if blit_gamma_pipeline.is_valid():
-		RenderingServer.free_rid(blit_gamma_pipeline)
 
 func _recreate_edge_pipeline() -> void:
 	if edge_shader.is_valid():
@@ -385,7 +372,7 @@ func _blend_pipeline_create_uniforms() -> RID:
 func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) -> void:
 	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_TRANSPARENT and edge_shader.is_valid() and weight_shader.is_valid() and blend_shader.is_valid() and blit_shader.is_valid():
 		var render_scene_buffers : RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
-		if render_scene_buffers:
+		if render_scene_buffers and render_scene_buffers.get_msaa_3d():
 			var view_count = render_scene_buffers.get_view_count()
 			var size : Vector2i = render_scene_buffers.get_internal_size()
 			if size.x == 0 and size.y == 0:
