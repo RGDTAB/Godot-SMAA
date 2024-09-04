@@ -372,7 +372,7 @@ func _blend_pipeline_create_uniforms() -> RID:
 func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) -> void:
 	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_TRANSPARENT and edge_shader.is_valid() and weight_shader.is_valid() and blend_shader.is_valid() and blit_shader.is_valid():
 		var render_scene_buffers : RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
-		if render_scene_buffers and render_scene_buffers.get_msaa_3d():
+		if render_scene_buffers:
 			var view_count = render_scene_buffers.get_view_count()
 			var size : Vector2i = render_scene_buffers.get_internal_size()
 			if size.x == 0 and size.y == 0:
