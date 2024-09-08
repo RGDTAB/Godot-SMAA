@@ -1,5 +1,5 @@
 ## Godot-SMAA
-A Godot compositor effect to implement Enhanced Subpixel Morphological Antialiasing (SMAA). Currently this implementation only supports SMAA 1x.  
+A Godot compositor effect to implement Enhanced Subpixel Morphological Antialiasing (SMAA). Currently this implementation only supports SMAA 1x and S2x.  
 **Godot compositor effects were added with Godot 4.3, so this project will not work on any prior version.**
 
 This compositor effect uses render pipelines instead of compute pipelines so that adapting [the original SMAA shader](https://github.com/iryoku/smaa) would be simpler.
@@ -10,15 +10,15 @@ You'll then need to add a compositor to your WorldEnvironment node, if you don't
 
 ### Configuration
 Basic configuration such as quality level and edge detection method can be changed through the export variables under the SMAA group in the compositor effects panel.  
-More advanced configuration will require editing the `_get_smaa_parameters()` function in SMAA.gd. There you can change the associated parameters for each quality level.
+More advanced configuration will require editing the `_get_smaa_parameters()` function in SMAA.gd. There you can change the associated parameters for each quality level.  
+To enable SMAA S2x, enable MSAA3D x2 and it'll be handled automatically.
 
 **Please note that the depth edge detection method is currently broken/ineffective.** I haven't put much work into it since luma and color edge detection are significantly more capable, but I left it in just in case someone else wanted to tinker with it.
 
 ### Roadmap
-I'll need to do more research to determine if SMAA S2x is possible. It will depend on if the output passed to compositor effects comes with MSAA already resolved.  
-SMAA T2x interests me more though, since it would better remove the aliasing on thin specular highlights. With motion vectors being made available to compositor effects I'm reasonably confident that it's possible. The biggest hurdle is probably going to be jittering the camera correctly, since the alternative is adding a vertex shader to each and every object in your scene, and that's just unreasonable.
+SMAA T2x and 4x are currently on hold. With motion vectors being available to compositor effects I'm reasonably confident that they will be possible in the future. The issue comes with applying subpixel jitters. We'll need some way to apply custom projection matrices to Camera3D objects.
 
-Maybe fix depth edge detection. A byproduct of that will be that we can use the depth buffer for predicated thresholding, which may improve performance in indoor scenes.
+Maybe I'll fix depth edge detection. A byproduct of that will be that we can use the depth buffer for predicated thresholding, which may improve performance in indoor scenes.
 
 ### License
 All of the shader files (\*.glsl) and texture files (\*.dds) belong to the amazing original team that developed SMAA. All I did was modify them for use in Godot. Their MIT license can be found in LICENSE.smaa.  
