@@ -79,37 +79,37 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
 		# Pipelines are cleaned up automatically by freeing their shader
 		if edge_shader.is_valid():
-			RenderingServer.free_rid(edge_shader)
+			rd.free_rid(edge_shader)
 		if weight_shader.is_valid():
-			RenderingServer.free_rid(weight_shader)
+			rd.free_rid(weight_shader)
 		if blend_shader.is_valid():
-			RenderingServer.free_rid(blend_shader)
+			rd.free_rid(blend_shader)
 		if blit_shader.is_valid():
-			RenderingServer.free_rid(blit_shader)
+			rd.free_rid(blit_shader)
 		if separate_shader.is_valid():
-			RenderingServer.free_rid(separate_shader)
+			rd.free_rid(separate_shader)
 		if area_tex.is_valid():
-			RenderingServer.free_rid(area_tex)
+			rd.free_rid(area_tex)
 		if search_tex.is_valid():
-			RenderingServer.free_rid(search_tex)
+			rd.free_rid(search_tex)
 		if edges_tex.is_valid():
-			RenderingServer.free_rid(edges_tex)
+			rd.free_rid(edges_tex)
 		if blend_tex.is_valid():
-			RenderingServer.free_rid(blend_tex)
+			rd.free_rid(blend_tex)
 		if copy_tex.is_valid():
-			RenderingServer.free_rid(copy_tex)
+			rd.free_rid(copy_tex)
 		if single_sample_tex[0].is_valid():
-			RenderingServer.free_rid(single_sample_tex[0])
+			rd.free_rid(single_sample_tex[0])
 		if single_sample_tex[1].is_valid():
-			RenderingServer.free_rid(single_sample_tex[1])
+			rd.free_rid(single_sample_tex[1])
 		if nearest_sampler.is_valid():
-			RenderingServer.free_rid(nearest_sampler)
+			rd.free_rid(nearest_sampler)
 		if linear_sampler.is_valid():
-			RenderingServer.free_rid(linear_sampler)
+			rd.free_rid(linear_sampler)
 		if vertex_buffer.is_valid():
-			RenderingServer.free_rid(vertex_buffer)
+			rd.free_rid(vertex_buffer)
 		if vertex_array.is_valid():
-			RenderingServer.free_rid(vertex_array)
+			rd.free_rid(vertex_array)
 
 # Based off of the SMAA developers quality settings
 func _get_smaa_parameters() -> void:
@@ -201,17 +201,15 @@ func _create_pipelines() -> void:
 
 func _clean_pipelines() -> void:
 	if edge_pipeline.is_valid():
-		RenderingServer.free_rid(edge_pipeline)
+		rd.free_rid(edge_pipeline)
 	if weight_pipeline.is_valid():
-		RenderingServer.free_rid(weight_pipeline)
+		rd.free_rid(weight_pipeline)
 	if blend_pipeline.is_valid():
-		RenderingServer.free_rid(blend_pipeline)
+		rd.free_rid(blend_pipeline)
 
 func _recreate_edge_pipeline() -> void:
 	if edge_shader.is_valid():
-		RenderingServer.free_rid(edge_shader)
-	if edge_pipeline.is_valid():
-		RenderingServer.free_rid(edge_pipeline)
+		rd.free_rid(edge_shader)
 
 	var shader_file
 	match edge_detection_method:
@@ -379,12 +377,14 @@ func _toggle_S2x(size : Vector2i) -> void:
 	tf.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
 		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT)
 
-	if copy_tex.is_valid():
-		RenderingServer.free_rid(copy_tex)
-	if single_sample_tex[0].is_valid():
-		RenderingServer.free_rid(single_sample_tex[0])
-	if single_sample_tex[1].is_valid():
-		RenderingServer.free_rid(single_sample_tex[1])
+	if !S2x:
+		if copy_tex.is_valid():
+			rd.free_rid(copy_tex)
+	else:
+		if single_sample_tex[0].is_valid():
+			rd.free_rid(single_sample_tex[0])
+		if single_sample_tex[1].is_valid():
+			rd.free_rid(single_sample_tex[1])
 
 	S2x = !S2x
 	if !S2x:
@@ -535,9 +535,6 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 			# We now have a different number of views(?) or this is the first frame
 			if view_count != framebuffers.size():
 				framebuffer_tex = render_scene_buffers.get_color_layer(0)
-				for view in framebuffers.size():
-					if framebuffers[view].is_valid():
-						RenderingServer.free_rid(framebuffers[view])
 				framebuffers.resize(view_count)
 				for view in view_count:
 					framebuffers[view] = rd.framebuffer_create([render_scene_buffers.get_color_layer(view)])
@@ -546,22 +543,23 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 			if size != framebuffer_size:
 				framebuffer_tex = render_scene_buffers.get_color_layer(0)
 				framebuffer_size = size
-				S2x = render_scene_buffers.get_msaa_3d() == RenderingServer.VIEWPORT_MSAA_2X
 				# Associated framebuffers are dependent on these textures
-				# they should be freed with them
+				# they're freed with them
 				if edges_tex.is_valid():
-					RenderingServer.free_rid(edges_tex)
+					rd.free_rid(edges_tex)
 				if blend_tex.is_valid():
-					RenderingServer.free_rid(blend_tex)
-				if copy_tex.is_valid():
-					RenderingServer.free_rid(copy_tex)
-				if single_sample_tex[0].is_valid():
-					RenderingServer.free_rid(single_sample_tex[0])
-				if single_sample_tex[1].is_valid():
-					RenderingServer.free_rid(single_sample_tex[1])
+					rd.free_rid(blend_tex)
+				if !S2x:
+					if copy_tex.is_valid():
+						rd.free_rid(copy_tex)
+				else:
+					if single_sample_tex[0].is_valid():
+						rd.free_rid(single_sample_tex[0])
+					if single_sample_tex[1].is_valid():
+						rd.free_rid(single_sample_tex[1])
+
+				S2x = render_scene_buffers.get_msaa_3d() == RenderingServer.VIEWPORT_MSAA_2X
 				for view in view_count:
-					if framebuffers[view].is_valid():
-						RenderingServer.free_rid(framebuffers[view])
 					framebuffers[view] = rd.framebuffer_create([render_scene_buffers.get_color_layer(view)])
 				_create_textures(size)
 
