@@ -42,16 +42,10 @@ var separate_pipeline : RID
 
 var edges_tex : RID
 var blend_tex : RID
-var edges_framebuffer : RID
-var blend_framebuffer : RID
-# edges_tex only has r + g channels
-var rg_framebuffer_format : int
 
 var single_sample_tex : Array[RID]
-var single_sample_framebuffer : RID
 
 var copy_tex : RID
-var copy_framebuffer : RID
 
 var area_tex : RID
 var search_tex : RID
@@ -59,11 +53,10 @@ var search_tex : RID
 var nearest_sampler : RID
 var linear_sampler : RID
 
-var framebuffers : Array[RID]
 var framebuffer_size : Vector2i = Vector2i(0, 0)
-# Confirms that the output texture hasn't changed
-var framebuffer_tex : RID
 var framebuffer_format : int
+# edges_tex only has r + g channels
+var rg_framebuffer_format : int
 
 var S2x : bool = false
 
@@ -88,10 +81,7 @@ func _notification(what: int) -> void:
 			rd.free_rid(blit_shader)
 		if separate_shader.is_valid():
 			rd.free_rid(separate_shader)
-		if area_tex.is_valid():
-			rd.free_rid(area_tex)
-		if search_tex.is_valid():
-			rd.free_rid(search_tex)
+		# Can't use _clean_textures() here
 		if edges_tex.is_valid():
 			rd.free_rid(edges_tex)
 		if blend_tex.is_valid():
@@ -111,7 +101,7 @@ func _notification(what: int) -> void:
 		if vertex_array.is_valid():
 			rd.free_rid(vertex_array)
 
-# Based off of the SMAA developers quality settings
+# Based off of the SMAA developer's quality settings
 func _get_smaa_parameters() -> void:
 	match quality:
 		QualityLevel.LOW:
@@ -207,6 +197,22 @@ func _clean_pipelines() -> void:
 	if blend_pipeline.is_valid():
 		rd.free_rid(blend_pipeline)
 
+func _clean_textures() -> void:
+	# Associated framebuffers are dependent on these textures
+	# they're freed with them
+	if edges_tex.is_valid():
+		rd.free_rid(edges_tex)
+	if blend_tex.is_valid():
+		rd.free_rid(blend_tex)
+	if !S2x:
+		if copy_tex.is_valid():
+			rd.free_rid(copy_tex)
+	else:
+		if single_sample_tex[0].is_valid():
+			rd.free_rid(single_sample_tex[0])
+		if single_sample_tex[1].is_valid():
+			rd.free_rid(single_sample_tex[1])
+
 func _recreate_edge_pipeline() -> void:
 	if edge_shader.is_valid():
 		rd.free_rid(edge_shader)
@@ -279,21 +285,12 @@ func _initiate_post_process() -> void:
 	single_sample_tex.resize(2)
 
 	var smaa_tex = preload(SMAA_dir + "SearchTex.dds")
-	var tf : RDTextureFormat = RDTextureFormat.new()
-	tf.format = RenderingDevice.DATA_FORMAT_R8_UNORM
-	tf.width = smaa_tex.get_width()
-	tf.height = smaa_tex.get_height()
-	tf.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
-	search_tex = rd.texture_create(tf, RDTextureView.new(), [smaa_tex.get_image().get_data()])
+	search_tex = RenderingServer.texture_get_rd_texture(smaa_tex.get_rid())
 
 	# Needed to compress AreaTex(DX10) with BC5 to sample from it for some reason.
 	# The difference should be unnoticeable
 	smaa_tex = preload(SMAA_dir + "AreaTex.dds")
-	tf.format = RenderingDevice.DATA_FORMAT_BC5_UNORM_BLOCK
-	tf.width = smaa_tex.get_width()
-	tf.height = smaa_tex.get_height()
-	tf.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
-	area_tex = rd.texture_create(tf, RDTextureView.new(), [smaa_tex.get_image().get_data()])
+	area_tex = RenderingServer.texture_get_rd_texture(smaa_tex.get_rid())
 
 	var verts := PackedFloat32Array([
 		-1.0, -1.0, 0.0, 0.0,
@@ -360,14 +357,9 @@ func _create_textures(size: Vector2i) -> void:
 	blend_tex = rd.texture_create(tf, RDTextureView.new())
 	if !S2x:
 		copy_tex = rd.texture_create(tf, RDTextureView.new())
-		copy_framebuffer = rd.framebuffer_create([copy_tex])
 	else:
 		single_sample_tex[0] = rd.texture_create(tf, RDTextureView.new())
 		single_sample_tex[1] = rd.texture_create(tf, RDTextureView.new())
-		single_sample_framebuffer = rd.framebuffer_create(single_sample_tex)
-
-	edges_framebuffer = rd.framebuffer_create([edges_tex])
-	blend_framebuffer = rd.framebuffer_create([blend_tex])
 
 func _toggle_S2x(size : Vector2i) -> void:
 	var tf : RDTextureFormat = RDTextureFormat.new()
@@ -389,11 +381,9 @@ func _toggle_S2x(size : Vector2i) -> void:
 	S2x = !S2x
 	if !S2x:
 		copy_tex = rd.texture_create(tf, RDTextureView.new())
-		copy_framebuffer = rd.framebuffer_create([copy_tex])
 	else:
 		single_sample_tex[0] = rd.texture_create(tf, RDTextureView.new())
 		single_sample_tex[1] = rd.texture_create(tf, RDTextureView.new())
-		single_sample_framebuffer = rd.framebuffer_create(single_sample_tex)
 
 func _blit_pipeline_create_uniforms(source : RID) -> RID:
 	var uniform : RDUniform = RDUniform.new()
@@ -453,6 +443,8 @@ func _blend_pipeline_create_uniforms(input : RID) -> RID:
 	return UniformSetCacheRD.get_cache(blend_shader, 0, [color_tex_uniform, blend_tex_uniform])
 
 func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, view : int, blend_alpha : float = 1.0) -> void:
+	var edges_framebuffer = FramebufferCacheRD.get_cache_multipass([edges_tex], [], 1)
+	var blend_framebuffer = FramebufferCacheRD.get_cache_multipass([blend_tex], [], 1)
 	var push_constant : PackedFloat32Array = PackedFloat32Array([
 		1.0 / framebuffer_size.x, 1.0 / framebuffer_size.y, framebuffer_size.x, framebuffer_size.y
 	])
@@ -532,42 +524,12 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 			if size.x == 0 and size.y == 0:
 				return
 
-			# We now have a different number of views(?) or this is the first frame
-			if view_count != framebuffers.size():
-				framebuffer_tex = render_scene_buffers.get_color_layer(0)
-				framebuffers.resize(view_count)
-				for view in view_count:
-					framebuffers[view] = rd.framebuffer_create([render_scene_buffers.get_color_layer(view)])
-
 			# Our window has resized
 			if size != framebuffer_size:
-				framebuffer_tex = render_scene_buffers.get_color_layer(0)
 				framebuffer_size = size
-				# Associated framebuffers are dependent on these textures
-				# they're freed with them
-				if edges_tex.is_valid():
-					rd.free_rid(edges_tex)
-				if blend_tex.is_valid():
-					rd.free_rid(blend_tex)
-				if !S2x:
-					if copy_tex.is_valid():
-						rd.free_rid(copy_tex)
-				else:
-					if single_sample_tex[0].is_valid():
-						rd.free_rid(single_sample_tex[0])
-					if single_sample_tex[1].is_valid():
-						rd.free_rid(single_sample_tex[1])
-
+				_clean_textures()
 				S2x = render_scene_buffers.get_msaa_3d() == RenderingServer.VIEWPORT_MSAA_2X
-				for view in view_count:
-					framebuffers[view] = rd.framebuffer_create([render_scene_buffers.get_color_layer(view)])
 				_create_textures(size)
-
-			# Output framebuffers are no longer valid
-			if framebuffer_tex != render_scene_buffers.get_color_layer(0):
-				framebuffer_tex = render_scene_buffers.get_color_layer(0)
-				for view in view_count:
-					framebuffers[view] = rd.framebuffer_create([render_scene_buffers.get_color_layer(view)])
 
 			if (S2x and render_scene_buffers.get_msaa_3d() != 1) or (!S2x and render_scene_buffers.get_msaa_3d() == 1):
 				_toggle_S2x(size)
@@ -587,7 +549,11 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 			rd.draw_command_begin_label("SMAA", Color.WHITE)
 			for view in view_count:
 				var color_image : RID = render_scene_buffers.get_color_layer(view, S2x)
-				var depth_image : RID = render_scene_buffers.get_depth_layer(view, false)
+				var depth_image : RID
+				if edge_detection_method == EdgeDetectionMethod.DEPTH:
+					depth_image = render_scene_buffers.get_depth_layer(view, false)
+				var copy_framebuffer = FramebufferCacheRD.get_cache_multipass([copy_tex], [], 1)
+				var output_framebuffer = FramebufferCacheRD.get_cache_multipass([color_image], [], 1)
 
 				if !S2x:
 					# Copy source image to copy buffer for input in 3rd pass
@@ -608,10 +574,11 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 					rd.draw_command_end_label()
 
 					if edge_detection_method != EdgeDetectionMethod.DEPTH:
-						_smaa_process(copy_tex, color_image, framebuffers[view], view)
+						_smaa_process(copy_tex, color_image, output_framebuffer, view)
 					else:
-						_smaa_process(copy_tex, depth_image, framebuffers[view], view)
+						_smaa_process(copy_tex, depth_image, output_framebuffer, view)
 				else:
+					var single_sample_framebuffer = FramebufferCacheRD.get_cache_multipass(single_sample_tex, [], 1)
 					rd.draw_command_begin_label("SMAA Separate MSAA" + str(view), Color.WHITE)
 					var uniform_set = _separate_pipeline_create_uniforms(color_image)
 					var draw_list = rd.draw_list_begin(single_sample_framebuffer,
@@ -629,10 +596,10 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 					rd.draw_command_end_label()
 
 					if edge_detection_method != EdgeDetectionMethod.DEPTH:
-						_smaa_process(single_sample_tex[0], single_sample_tex[0], framebuffers[view], view, 1.0)
-						_smaa_process(single_sample_tex[1], single_sample_tex[1], framebuffers[view], view, 0.5)
+						_smaa_process(single_sample_tex[0], single_sample_tex[0], output_framebuffer, view, 1.0)
+						_smaa_process(single_sample_tex[1], single_sample_tex[1], output_framebuffer, view, 0.5)
 					else:
-						_smaa_process(single_sample_tex[0], depth_image, framebuffers[view], view, 1.0)
-						_smaa_process(single_sample_tex[1], depth_image, framebuffers[view], view, 0.5)
+						_smaa_process(single_sample_tex[0], depth_image, output_framebuffer, view, 1.0)
+						_smaa_process(single_sample_tex[1], depth_image, output_framebuffer, view, 0.5)
 
 			rd.draw_command_end_label()
