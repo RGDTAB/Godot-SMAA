@@ -50,6 +50,10 @@ var separate_pipeline : RID
 var edges_tex : RID
 var blend_tex : RID
 
+var stencil_buffer : RID
+# Stencil buffer format support is hardware dependent
+var stencil_buffer_format : RenderingDevice.DataFormat
+
 var single_sample_tex : Array[RID]
 
 var copy_tex : RID
@@ -94,6 +98,8 @@ func _notification(what: int) -> void:
 			rd.free_rid(edges_tex)
 		if blend_tex.is_valid():
 			rd.free_rid(blend_tex)
+		if stencil_buffer.is_valid():
+			rd.free_rid(stencil_buffer)
 		if copy_tex.is_valid():
 			rd.free_rid(copy_tex)
 		if single_sample_tex[0].is_valid():
@@ -146,12 +152,7 @@ func _create_pipelines() -> void:
 	va.stride = 16
 	va.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 
-	var no_blend := RDPipelineColorBlendState.new()
 	var no_blend_attachment := RDPipelineColorBlendStateAttachment.new()
-	no_blend.attachments = [no_blend_attachment]
-	var dual_color_blend := RDPipelineColorBlendState.new()
-	dual_color_blend.attachments = [no_blend_attachment, no_blend_attachment]
-	var blend_constant_alpha := RDPipelineColorBlendState.new()
 	var blend_attachment := RDPipelineColorBlendStateAttachment.new()
 	blend_attachment.enable_blend = true
 	blend_attachment.color_blend_op = RenderingDevice.BLEND_OP_ADD
@@ -160,37 +161,62 @@ func _create_pipelines() -> void:
 	blend_attachment.alpha_blend_op = RenderingDevice.BLEND_OP_ADD
 	blend_attachment.src_alpha_blend_factor = RenderingDevice.BLEND_FACTOR_CONSTANT_ALPHA
 	blend_attachment.dst_alpha_blend_factor = RenderingDevice.BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA
+	var no_blend := RDPipelineColorBlendState.new()
+	no_blend.attachments = [no_blend_attachment]
+	var dual_color_blend := RDPipelineColorBlendState.new()
+	dual_color_blend.attachments = [no_blend_attachment, no_blend_attachment]
+	var blend_constant_alpha := RDPipelineColorBlendState.new()
 	blend_constant_alpha.attachments = [blend_attachment]
 
-	var attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
-	attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
-	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
-	var framebuffer_format = rd.framebuffer_format_create([attachment_format])
-	var dual_output_framebuffer_format = rd.framebuffer_format_create([attachment_format, attachment_format])
+	var color_attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	color_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
+	var output_framebuffer_format = rd.framebuffer_format_create([color_attachment_format])
+	var dual_output_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, color_attachment_format])
+
+	var stencil_attachment_format := RDAttachmentFormat.new()
+	stencil_attachment_format.format = stencil_buffer_format
+	stencil_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+	var blend_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, stencil_attachment_format])
 	# edges_tex only has r + g channels, so we need a different framebuffer format
-	attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
-	var rg_framebuffer_format = rd.framebuffer_format_create([attachment_format])
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
+	var edge_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, stencil_attachment_format])
+
+	var stencil_state := RDPipelineDepthStencilState.new()
+	stencil_state.enable_stencil = true
+	stencil_state.back_op_reference = 0x01
+	stencil_state.back_op_write_mask = 0xff
+	stencil_state.back_op_compare_mask = 0xff
+	stencil_state.back_op_pass = RenderingDevice.STENCIL_OP_REPLACE
+	stencil_state.front_op_reference = 0x01
+	stencil_state.front_op_write_mask = 0xff
+	stencil_state.front_op_compare_mask = 0xff
+	stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_REPLACE
 
 	if edge_shader.is_valid():
-		edge_pipeline = rd.render_pipeline_create(edge_shader, rg_framebuffer_format,
+		edge_pipeline = rd.render_pipeline_create(edge_shader, edge_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
-			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
 			no_blend
 		)
 	if weight_shader.is_valid():
-		weight_pipeline = rd.render_pipeline_create(weight_shader, framebuffer_format,
+		stencil_state.back_op_compare = RenderingDevice.COMPARE_OP_EQUAL
+		stencil_state.back_op_write_mask = 0
+		stencil_state.front_op_compare = RenderingDevice.COMPARE_OP_EQUAL
+		stencil_state.front_op_write_mask = 0
+		weight_pipeline = rd.render_pipeline_create(weight_shader, blend_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
-			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
 			no_blend
 		)
 	if blend_shader.is_valid():
-		blend_pipeline = rd.render_pipeline_create(blend_shader, framebuffer_format,
+		blend_pipeline = rd.render_pipeline_create(blend_shader, output_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
 			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
 			blend_constant_alpha, RenderingDevice.DYNAMIC_STATE_BLEND_CONSTANTS
 		)
 	if blit_shader.is_valid():
-		blit_pipeline = rd.render_pipeline_create(blit_shader, framebuffer_format,
+		blit_pipeline = rd.render_pipeline_create(blit_shader, output_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
 			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
 			no_blend
@@ -211,6 +237,9 @@ func _clean_textures() -> void:
 	if blend_tex.is_valid():
 		rd.free_rid(blend_tex)
 		blend_tex = RID()
+	if stencil_buffer.is_valid():
+		rd.free_rid(stencil_buffer)
+		stencil_buffer = RID()
 	if !S2x:
 		if copy_tex.is_valid():
 			rd.free_rid(copy_tex)
@@ -249,15 +278,29 @@ func _recreate_edge_pipeline() -> void:
 	var color_blend := RDPipelineColorBlendState.new()
 	color_blend.attachments = [RDPipelineColorBlendStateAttachment.new()]
 
-	var attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
-	attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
-	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
-	var rg_framebuffer_format = rd.framebuffer_format_create([attachment_format])
+	var color_attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
+	color_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
+	var stencil_attachment_format := RDAttachmentFormat.new()
+	stencil_attachment_format.format = stencil_buffer_format
+	stencil_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+	var edge_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, stencil_attachment_format])
+
+	var stencil_state := RDPipelineDepthStencilState.new()
+	stencil_state.enable_stencil = true
+	stencil_state.back_op_reference = 0x01
+	stencil_state.back_op_write_mask = 0xff
+	stencil_state.back_op_compare_mask = 0xff
+	stencil_state.back_op_pass = RenderingDevice.STENCIL_OP_REPLACE
+	stencil_state.front_op_reference = 0x01
+	stencil_state.front_op_write_mask = 0xff
+	stencil_state.front_op_compare_mask = 0xff
+	stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_REPLACE
 
 	if edge_shader.is_valid():
-		edge_pipeline = rd.render_pipeline_create(edge_shader, rg_framebuffer_format,
+		edge_pipeline = rd.render_pipeline_create(edge_shader, edge_framebuffer_format,
 			rd.vertex_format_create([va]), RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, RDPipelineRasterizationState.new(),
-			RDPipelineMultisampleState.new(), RDPipelineDepthStencilState.new(),
+			RDPipelineMultisampleState.new(), stencil_state,
 			color_blend
 		)
 
@@ -325,6 +368,17 @@ func _initiate_post_process() -> void:
 	sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	linear_sampler = rd.sampler_create(sampler_state)
 
+	# Find the smallest supported depth+stencil buffer
+	if rd.texture_is_format_supported_for_usage(RenderingDevice.DATA_FORMAT_D16_UNORM_S8_UINT,
+			RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT):
+		stencil_buffer_format = RenderingDevice.DATA_FORMAT_D16_UNORM_S8_UINT
+	elif rd.texture_is_format_supported_for_usage(RenderingDevice.DATA_FORMAT_D24_UNORM_S8_UINT,
+			RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT):
+		stencil_buffer_format = RenderingDevice.DATA_FORMAT_D24_UNORM_S8_UINT
+	elif rd.texture_is_format_supported_for_usage(RenderingDevice.DATA_FORMAT_D32_SFLOAT_S8_UINT,
+			RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT):
+		stencil_buffer_format = RenderingDevice.DATA_FORMAT_D32_SFLOAT_S8_UINT
+
 	_create_pipelines()
 
 func _create_textures(size: Vector2i) -> void:
@@ -334,6 +388,7 @@ func _create_textures(size: Vector2i) -> void:
 	tf.height = size.y
 	tf.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
 		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT)
+
 	edges_tex = rd.texture_create(tf, RDTextureView.new())
 	tf.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 	blend_tex = rd.texture_create(tf, RDTextureView.new())
@@ -342,6 +397,10 @@ func _create_textures(size: Vector2i) -> void:
 	else:
 		single_sample_tex[0] = rd.texture_create(tf, RDTextureView.new())
 		single_sample_tex[1] = rd.texture_create(tf, RDTextureView.new())
+
+	tf.format = stencil_buffer_format
+	tf.usage_bits = RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+	stencil_buffer = rd.texture_create(tf, RDTextureView.new())
 
 func _create_buffer(size : Vector2i) -> void :
 	if smaa_settings_ubo.is_valid():
@@ -453,8 +512,8 @@ func _blend_pipeline_create_uniforms(input : RID) -> RID:
 	return UniformSetCacheRD.get_cache(blend_shader, 1, [color_tex_uniform, blend_tex_uniform])
 
 func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, view : int, blend_alpha : float = 1.0) -> void:
-	var edges_framebuffer = FramebufferCacheRD.get_cache_multipass([edges_tex], [], 1)
-	var blend_framebuffer = FramebufferCacheRD.get_cache_multipass([blend_tex], [], 1)
+	var edges_framebuffer = FramebufferCacheRD.get_cache_multipass([edges_tex, stencil_buffer], [], 1)
+	var blend_framebuffer = FramebufferCacheRD.get_cache_multipass([blend_tex, stencil_buffer], [], 1)
 	var push_constant : PackedFloat32Array = PackedFloat32Array()
 	# First Pass: Edge Detection
 	rd.draw_command_begin_label("SMAA Edge Detection" + str(view), Color.WHITE)
@@ -468,9 +527,10 @@ func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, vie
 	var draw_list = rd.draw_list_begin(edges_framebuffer,
 		RenderingDevice.INITIAL_ACTION_CLEAR,
 		RenderingDevice.FINAL_ACTION_STORE,
-		RenderingDevice.INITIAL_ACTION_DISCARD,
-		RenderingDevice.FINAL_ACTION_DISCARD,
-		PackedColorArray([Color(0.0, 0.0, 0.0, 0.0)])
+		RenderingDevice.INITIAL_ACTION_CLEAR,
+		RenderingDevice.FINAL_ACTION_STORE,
+		PackedColorArray([Color(0.0, 0.0, 0.0, 0.0)]),
+		1.0, 0
 	)
 	rd.draw_list_bind_render_pipeline(draw_list, edge_pipeline)
 	rd.draw_list_bind_uniform_set(draw_list, settings_uniform_set, 0)
@@ -492,7 +552,7 @@ func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, vie
 	draw_list = rd.draw_list_begin(blend_framebuffer,
 		RenderingDevice.INITIAL_ACTION_CLEAR,
 		RenderingDevice.FINAL_ACTION_STORE,
-		RenderingDevice.INITIAL_ACTION_DISCARD,
+		RenderingDevice.INITIAL_ACTION_LOAD,
 		RenderingDevice.FINAL_ACTION_DISCARD,
 		PackedColorArray([Color(0.0, 0.0, 0.0, 0.0)])
 	)
