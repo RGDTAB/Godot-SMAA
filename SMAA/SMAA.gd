@@ -177,9 +177,10 @@ func _create_pipelines() -> void:
 	var stencil_attachment_format := RDAttachmentFormat.new()
 	stencil_attachment_format.format = stencil_buffer_format
 	stencil_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
 	var blend_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, stencil_attachment_format])
 	# edges_tex only has r + g channels, so we need a different framebuffer format
-	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R8G8_UNORM
 	var edge_framebuffer_format = rd.framebuffer_format_create([color_attachment_format, stencil_attachment_format])
 
 	var stencil_state := RDPipelineDepthStencilState.new()
@@ -279,7 +280,7 @@ func _recreate_edge_pipeline() -> void:
 	color_blend.attachments = [RDPipelineColorBlendStateAttachment.new()]
 
 	var color_attachment_format : RDAttachmentFormat = RDAttachmentFormat.new()
-	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
+	color_attachment_format.format = RenderingDevice.DATA_FORMAT_R8G8_UNORM
 	color_attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT
 	var stencil_attachment_format := RDAttachmentFormat.new()
 	stencil_attachment_format.format = stencil_buffer_format
@@ -383,15 +384,17 @@ func _initiate_post_process() -> void:
 
 func _create_textures(size: Vector2i) -> void:
 	var tf : RDTextureFormat = RDTextureFormat.new()
-	tf.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
 	tf.width = size.x
 	tf.height = size.y
 	tf.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
 		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT)
 
+	tf.format = RenderingDevice.DATA_FORMAT_R8G8_UNORM
 	edges_tex = rd.texture_create(tf, RDTextureView.new())
-	tf.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	tf.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
 	blend_tex = rd.texture_create(tf, RDTextureView.new())
+
+	tf.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 	if !S2x:
 		copy_tex = rd.texture_create(tf, RDTextureView.new())
 	else:
