@@ -501,10 +501,7 @@ func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, vie
 	var uniform_set : RID = _edge_pipeline_create_uniforms(edges_input)
 	var settings_uniform_set : RID = UniformSetCacheRD.get_cache(edge_shader, 0, settings_uniform)
 	var draw_list = rd.draw_list_begin(edges_framebuffer,
-		RenderingDevice.INITIAL_ACTION_CLEAR,
-		RenderingDevice.FINAL_ACTION_STORE,
-		RenderingDevice.INITIAL_ACTION_CLEAR,
-		RenderingDevice.FINAL_ACTION_STORE,
+		RenderingDevice.DRAW_CLEAR_COLOR_ALL | RenderingDevice.DRAW_CLEAR_STENCIL,
 		PackedColorArray([Color(0.0, 0.0, 0.0, 0.0)]),
 		1.0, 0
 	)
@@ -525,10 +522,7 @@ func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, vie
 	rd.draw_command_begin_label("SMAA Blending Weight Calculation" + str(view), Color.WHITE)
 	uniform_set = _weight_pipeline_create_uniforms()
 	draw_list = rd.draw_list_begin(blend_framebuffer,
-		RenderingDevice.INITIAL_ACTION_CLEAR,
-		RenderingDevice.FINAL_ACTION_STORE,
-		RenderingDevice.INITIAL_ACTION_LOAD,
-		RenderingDevice.FINAL_ACTION_DISCARD,
+		RenderingDevice.DRAW_CLEAR_COLOR_ALL,
 		PackedColorArray([Color(0.0, 0.0, 0.0, 0.0)])
 	)
 	rd.draw_list_bind_render_pipeline(draw_list, weight_pipeline)
@@ -542,12 +536,7 @@ func _smaa_process(input : RID, edges_input : RID, output_framebuffer : RID, vie
 	# Third Pass: Neighborhood Blending
 	rd.draw_command_begin_label("SMAA Neighborhood Blending" + str(view), Color.WHITE)
 	uniform_set = _blend_pipeline_create_uniforms(input)
-	draw_list = rd.draw_list_begin(output_framebuffer,
-		RenderingDevice.INITIAL_ACTION_DISCARD,
-		RenderingDevice.FINAL_ACTION_STORE,
-		RenderingDevice.INITIAL_ACTION_DISCARD,
-		RenderingDevice.FINAL_ACTION_DISCARD,
-	)
+	draw_list = rd.draw_list_begin(output_framebuffer)
 	rd.draw_list_bind_render_pipeline(draw_list, blend_pipeline)
 	rd.draw_list_bind_uniform_set(draw_list, settings_uniform_set, 0)
 	rd.draw_list_bind_uniform_set(draw_list, uniform_set, 1)
@@ -606,10 +595,7 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 					rd.draw_command_begin_label("SMAA Copy Source Image" + str(view), Color.WHITE)
 					var uniform_set = _blit_pipeline_create_uniforms(color_image)
 					var draw_list = rd.draw_list_begin(copy_framebuffer,
-						RenderingDevice.INITIAL_ACTION_DISCARD,
-						RenderingDevice.FINAL_ACTION_STORE,
-						RenderingDevice.INITIAL_ACTION_DISCARD,
-						RenderingDevice.FINAL_ACTION_DISCARD,
+						RenderingDevice.DRAW_IGNORE_ALL,
 					)
 					rd.draw_list_bind_render_pipeline(draw_list, blit_pipeline)
 					rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
@@ -626,10 +612,7 @@ func _render_callback(p_effect_callback_type: int, p_render_data: RenderData) ->
 					rd.draw_command_begin_label("SMAA Separate MSAA" + str(view), Color.WHITE)
 					var uniform_set = _separate_pipeline_create_uniforms(color_image)
 					var draw_list = rd.draw_list_begin(single_sample_framebuffer,
-						RenderingDevice.INITIAL_ACTION_DISCARD,
-						RenderingDevice.FINAL_ACTION_STORE,
-						RenderingDevice.INITIAL_ACTION_DISCARD,
-						RenderingDevice.FINAL_ACTION_DISCARD,
+						RenderingDevice.DRAW_IGNORE_ALL,
 					)
 					rd.draw_list_bind_render_pipeline(draw_list, separate_pipeline)
 					rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
